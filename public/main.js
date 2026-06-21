@@ -36,6 +36,7 @@ let time = 0;
 let animationId = null;
 let ws = null;
 let spectrumData = [];
+let splSendThrottle = null;
 
 function init() {
   const centerX = canvas.width / 2;
@@ -184,7 +185,7 @@ function handleCanvasClick(e) {
     source2PosSpan.textContent = `(${Math.round(source2.x)}, ${Math.round(source2.y)})`;
   }
 
-  sendCalculateSpl(x, y);
+  sendCalculateSplThrottled(x, y);
 }
 
 function handleCanvasMove(e) {
@@ -199,12 +200,24 @@ function handleCanvasMove(e) {
   interferenceDisplay.textContent = `干涉类型: ${typeText}`;
 }
 
+function sendCalculateSplThrottled(x, y) {
+  if (splSendThrottle) {
+    clearTimeout(splSendThrottle);
+  }
+  splSendThrottle = setTimeout(() => {
+    sendCalculateSpl(x, y);
+  }, 80);
+}
+
 function sendCalculateSpl(x, y) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN &&
+      typeof source1.x === 'number' && typeof source1.y === 'number' &&
+      typeof source2.x === 'number' && typeof source2.y === 'number' &&
+      typeof x === 'number' && typeof y === 'number') {
     ws.send(JSON.stringify({
       type: 'calculate_spl',
-      source1,
-      source2,
+      source1: { x: source1.x, y: source1.y },
+      source2: { x: source2.x, y: source2.y },
       point: { x, y },
       frequency
     }));
@@ -235,11 +248,26 @@ function renderHistory(measurements) {
     return;
   }
 
+  function formatUTC8Time(dateStr) {
+    if (!dateStr) return '--';
+    const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+    if (match) {
+      const [, Y, M, D, h, m, s] = match;
+      return `${h}:${m}:${s}`;
+    }
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      const utc8 = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+      return utc8.toTimeString().slice(0, 8);
+    }
+    return dateStr;
+  }
+
   historyList.innerHTML = measurements.map(m => `
     <div class="history-item">
       <span class="spl-value">${m.spl.toFixed(1)} dB</span>
       <span style="margin-left:8px;">${m.frequency}Hz</span>
-      <div class="time">${new Date(m.created_at).toLocaleTimeString()}</div>
+      <div class="time">${formatUTC8Time(m.created_at)}</div>
     </div>
   `).join('');
 }

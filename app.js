@@ -65,38 +65,58 @@ function handleMessage(ws, message) {
   }
 }
 
+function isValidPoint(p) {
+  return p && typeof p.x === 'number' && typeof p.y === 'number' &&
+         Number.isFinite(p.x) && Number.isFinite(p.y);
+}
+
 function handleCalculateSpl(ws, message) {
-  const { source1, source2, point, frequency } = message;
+  try {
+    const { source1, source2, point, frequency } = message;
 
-  if (!source1 || !source2 || !point || !frequency) {
-    ws.send(JSON.stringify({ type: 'error', message: 'Missing required parameters' }));
-    return;
+    if (!source1 || !source2 || !point || !frequency) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Missing required parameters' }));
+      return;
+    }
+
+    if (!isValidPoint(source1) || !isValidPoint(source2) || !isValidPoint(point)) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid point coordinates' }));
+      return;
+    }
+
+    if (typeof frequency !== 'number' || frequency <= 0 || !Number.isFinite(frequency)) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid frequency' }));
+      return;
+    }
+
+    const splValue = splAtPoint(source1, source2, point.x, point.y, frequency);
+    const interference = interferenceType(source1, source2, point.x, point.y, frequency);
+    const lambda = wavelength(frequency);
+
+    const measurementData = {
+      source1,
+      source2,
+      point,
+      frequency,
+      spl: splValue,
+      interferenceType: interference
+    };
+
+    const id = addMeasurement(measurementData);
+
+    ws.send(JSON.stringify({
+      type: 'spl_result',
+      id,
+      spl: splValue,
+      interferenceType: interference,
+      wavelength: lambda,
+      point,
+      frequency
+    }));
+  } catch (err) {
+    console.error('handleCalculateSpl error:', err.message);
+    ws.send(JSON.stringify({ type: 'error', message: 'Calculation failed: ' + err.message }));
   }
-
-  const splValue = splAtPoint(source1, source2, point.x, point.y, frequency);
-  const interference = interferenceType(source1, source2, point.x, point.y, frequency);
-  const lambda = wavelength(frequency);
-
-  const measurementData = {
-    source1,
-    source2,
-    point,
-    frequency,
-    spl: splValue,
-    interferenceType: interference
-  };
-
-  const id = addMeasurement(measurementData);
-
-  ws.send(JSON.stringify({
-    type: 'spl_result',
-    id,
-    spl: splValue,
-    interferenceType: interference,
-    wavelength: lambda,
-    point,
-    frequency
-  }));
 }
 
 function handleGetSpectrum(ws, message) {
