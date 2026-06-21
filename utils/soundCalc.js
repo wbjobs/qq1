@@ -81,6 +81,82 @@ function generateSpectrum(baseFrequency, numBands = 64) {
   return spectrum;
 }
 
+function standingWaveAmplitude(source1, source2, pointX, pointY, frequency) {
+  const r1 = distance(source1.x, source1.y, pointX, pointY);
+  const r2 = distance(source2.x, source2.y, pointX, pointY);
+
+  if (r1 < 0.001 || r2 < 0.001) {
+    return SOURCE_PRESSURE_AMPLITUDE / Math.min(r1, r2);
+  }
+
+  const pAmp1 = SOURCE_PRESSURE_AMPLITUDE / r1;
+  const pAmp2 = SOURCE_PRESSURE_AMPLITUDE / r2;
+  const phaseDiff = (2 * Math.PI * Math.abs(r1 - r2)) / wavelength(frequency);
+
+  return Math.sqrt(
+    pAmp1 * pAmp1 + pAmp2 * pAmp2 + 2 * pAmp1 * pAmp2 * Math.cos(phaseDiff)
+  );
+}
+
+function isNodeLine(source1, source2, pointX, pointY, frequency, threshold = 0.05) {
+  const amp = standingWaveAmplitude(source1, source2, pointX, pointY, frequency);
+  const maxAmp = (SOURCE_PRESSURE_AMPLITUDE / Math.min(
+    distance(source1.x, source1.y, pointX, pointY),
+    distance(source2.x, source2.y, pointX, pointY)
+  )) * 2;
+  if (maxAmp <= 0) return false;
+  return (amp / maxAmp) < threshold;
+}
+
+function calculateSWR(maxPressure, minPressure) {
+  if (minPressure <= 0 || !isFinite(minPressure)) return Infinity;
+  if (maxPressure <= 0 || !isFinite(maxPressure)) return 0;
+  return maxPressure / minPressure;
+}
+
+function swrInRegion(source1, source2, frequency, width, height, step = 10) {
+  let maxAmp = 0;
+  let minAmp = Infinity;
+  let validPoints = 0;
+
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const r1 = distance(source1.x, source1.y, x, y);
+      const r2 = distance(source2.x, source2.y, x, y);
+
+      if (r1 < 1 || r2 < 1) continue;
+
+      const amp = standingWaveAmplitude(source1, source2, x, y, frequency);
+
+      if (isFinite(amp) && amp > 0) {
+        if (amp > maxAmp) maxAmp = amp;
+        if (amp < minAmp) minAmp = amp;
+        validPoints++;
+      }
+    }
+  }
+
+  if (validPoints === 0 || minAmp === Infinity) {
+    return {
+      swr: Infinity,
+      maxPressure: 0,
+      minPressure: 0,
+      maxSpl: -Infinity,
+      minSpl: -Infinity,
+      validPoints: 0
+    };
+  }
+
+  return {
+    swr: maxAmp / minAmp,
+    maxPressure: maxAmp,
+    minPressure: minAmp,
+    maxSpl: spl(maxAmp),
+    minSpl: spl(minAmp),
+    validPoints
+  };
+}
+
 module.exports = {
   distance,
   wavelength,
@@ -90,6 +166,10 @@ module.exports = {
   splAtPoint,
   interferenceType,
   generateSpectrum,
+  calculateSWR,
+  swrInRegion,
+  isNodeLine,
+  standingWaveAmplitude,
   SPEED_OF_SOUND,
   REFERENCE_PRESSURE,
   SOURCE_PRESSURE_AMPLITUDE

@@ -56,6 +56,22 @@
               点击设置声源2
             </label>
           </div>
+
+          <div class="control-group">
+            <label>
+              <input type="checkbox" id="standingWaveMode">
+              驻波模式
+            </label>
+          </div>
+
+          <div class="control-group">
+            <label>
+              <input type="checkbox" id="showNodeLines">
+              显示驻波节线
+            </label>
+          </div>
+
+          <button id="exportBtn" class="btn export-btn">导出PNG图片</button>
         </div>
 
         <div class="info-panel">
@@ -83,8 +99,22 @@
         </div>
 
         <div class="spectrum-panel">
-          <h2>频谱图</h2>
+          <h2>频谱图 & 驻波比</h2>
           <canvas id="spectrumCanvas" width="280" height="150"></canvas>
+          <div class="swr-info">
+            <div class="swr-row">
+              <span class="swr-label">SWR:</span>
+              <span id="swrValue" class="swr-value">--</span>
+            </div>
+            <div class="swr-row">
+              <span class="swr-label">最大SPL:</span>
+              <span id="swrMaxSpl" class="swr-sub">-- dB</span>
+            </div>
+            <div class="swr-row">
+              <span class="swr-label">最小SPL:</span>
+              <span id="swrMinSpl" class="swr-sub">-- dB</span>
+            </div>
+          </div>
         </div>
 
         <div class="history-panel">
@@ -103,6 +133,10 @@
       <div class="legend-item">
         <span class="legend-color destructive"></span>
         <span>减弱区域（暗）</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-line node"></span>
+        <span>驻波节线</span>
       </div>
       <div class="legend-item">
         <span class="legend-dot source1"></span>

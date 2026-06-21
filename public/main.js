@@ -10,6 +10,9 @@ const distanceSlider = document.getElementById('sourceDistance');
 const showWavesCheckbox = document.getElementById('showWaves');
 const showInterferenceCheckbox = document.getElementById('showInterference');
 const clickModeCheckbox = document.getElementById('clickMode');
+const standingWaveCheckbox = document.getElementById('standingWaveMode');
+const nodeLinesCheckbox = document.getElementById('showNodeLines');
+const exportBtn = document.getElementById('exportBtn');
 
 const freqValueSpan = document.getElementById('freqValue');
 const distValueSpan = document.getElementById('distValue');
@@ -22,12 +25,19 @@ const wavelengthSpan = document.getElementById('wavelength');
 const wsStatusSpan = document.getElementById('wsStatus');
 const historyList = document.getElementById('historyList');
 const refreshHistoryBtn = document.getElementById('refreshHistory');
+const swrValueSpan = document.getElementById('swrValue');
+const swrMaxSplSpan = document.getElementById('swrMaxSpl');
+const swrMinSplSpan = document.getElementById('swrMinSpl');
 
 let frequency = 440;
 let sourceDistance = 200;
 let showWaves = true;
 let showInterference = true;
 let clickMode = true;
+let standingWaveMode = false;
+let showNodeLines = false;
+let currentSWR = null;
+let swrUpdateTimer = null;
 
 let source1 = { x: 0, y: 0 };
 let source2 = { x: 0, y: 0 };
@@ -59,12 +69,14 @@ function bindEvents() {
     freqValueSpan.textContent = frequency;
     updateWavelength();
     requestSpectrum();
+    scheduleSWRUpdate();
   });
 
   distanceSlider.addEventListener('input', (e) => {
     sourceDistance = parseFloat(e.target.value);
     distValueSpan.textContent = sourceDistance;
     updateSourcePositions();
+    scheduleSWRUpdate();
   });
 
   showWavesCheckbox.addEventListener('change', (e) => {
@@ -78,6 +90,21 @@ function bindEvents() {
   clickModeCheckbox.addEventListener('change', (e) => {
     clickMode = e.target.checked;
   });
+
+  standingWaveCheckbox.addEventListener('change', (e) => {
+    standingWaveMode = e.target.checked;
+    if (standingWaveMode) {
+      nodeLinesCheckbox.checked = true;
+      showNodeLines = true;
+    }
+    requestSWR();
+  });
+
+  nodeLinesCheckbox.addEventListener('change', (e) => {
+    showNodeLines = e.target.checked;
+  });
+
+  exportBtn.addEventListener('click', exportPNG);
 
   canvas.addEventListener('click', handleCanvasClick);
   canvas.addEventListener('mousemove', handleCanvasMove);
@@ -111,6 +138,7 @@ function initWebSocket() {
       wsStatusSpan.textContent = '已连接';
       wsStatusSpan.className = 'info-value status-connected';
       requestSpectrum();
+      requestSWR();
     };
 
     ws.onclose = () => {
@@ -144,6 +172,9 @@ function handleWebSocketMessage(message) {
     case 'history_data':
       handleHistoryData(message);
       break;
+    case 'swr_result':
+      handleSWRResult(message);
+      break;
     case 'error':
       console.error('Server error:', message.message);
       break;
@@ -156,6 +187,45 @@ function handleSplResult(message) {
                    message.interferenceType === 'destructive' ? '减弱' : '中间';
   interferenceDisplay.textContent = `干涉类型: ${typeText}`;
   loadHistory();
+}
+
+function handleSWRResult(message) {
+  currentSWR = message;
+  if (message.swr !== null && isFinite(message.swr)) {
+    swrValueSpan.textContent = message.swr.toFixed(3);
+  } else {
+    swrValueSpan.textContent = '∞';
+  }
+  if (isFinite(message.maxSpl)) {
+    swrMaxSplSpan.textContent = message.maxSpl.toFixed(1) + ' dB';
+  } else {
+    swrMaxSplSpan.textContent = '-- dB';
+  }
+  if (isFinite(message.minSpl)) {
+    swrMinSplSpan.textContent = message.minSpl.toFixed(1) + ' dB';
+  } else {
+    swrMinSplSpan.textContent = '-- dB';
+  }
+}
+
+function requestSWR() {
+  if (ws && ws.readyState === WebSocket.OPEN &&
+      typeof source1.x === 'number' && typeof source2.x === 'number') {
+    ws.send(JSON.stringify({
+      type: 'calculate_swr',
+      source1: { x: source1.x, y: source1.y },
+      source2: { x: source2.x, y: source2.y },
+      frequency,
+      width: canvas.width,
+      height: canvas.height,
+      step: 8
+    }));
+  }
+}
+
+function scheduleSWRUpdate() {
+  if (swrUpdateTimer) clearTimeout(swrUpdateTimer);
+  swrUpdateTimer = setTimeout(requestSWR, 150);
 }
 
 function handleSpectrumData(message) {
@@ -183,6 +253,7 @@ function handleCanvasClick(e) {
     distanceSlider.value = sourceDistance;
     distValueSpan.textContent = Math.round(sourceDistance);
     source2PosSpan.textContent = `(${Math.round(source2.x)}, ${Math.round(source2.y)})`;
+    scheduleSWRUpdate();
   }
 
   sendCalculateSplThrottled(x, y);
@@ -351,6 +422,10 @@ function draw() {
     drawWaves(source2, '#10b981', time);
   }
 
+  if (showNodeLines) {
+    drawNodeLines();
+  }
+
   drawSource(source1, '#ef4444', '1');
   drawSource(source2, '#10b981', '2');
 
@@ -390,6 +465,97 @@ function drawInterferencePattern() {
   }
 
   ctx.putImageData(imageData, 0, 0);
+}
+
+function drawNodeLines() {
+  const step = 3;
+  const threshold = 0.12;
+  const w = canvas.width;
+  const h = canvas.height;
+
+  const grid = [];
+  const rows = Math.ceil(h / step) + 1;
+  const cols = Math.ceil(w / step) + 1;
+
+  for (let j = 0; j < rows; j++) {
+    grid[j] = [];
+    for (let i = 0; i < cols; i++) {
+      const x = i * step;
+      const y = j * step;
+      const amp = standingWaveAmplitudeLocal(source1, source2, x, y, frequency);
+      const r1 = distanceLocal(source1.x, source1.y, x, y);
+      const r2 = distanceLocal(source2.x, source2.y, x, y);
+      const maxLocal = 2 / Math.max(1, Math.min(r1, r2));
+      grid[j][i] = maxLocal > 0 ? amp / maxLocal : 1;
+    }
+  }
+
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = '#f59e0b';
+  ctx.shadowBlur = 4;
+
+  for (let j = 0; j < rows - 1; j++) {
+    for (let i = 0; i < cols - 1; i++) {
+      const v00 = grid[j][i];
+      const v10 = grid[j][i + 1];
+      const v01 = grid[j + 1][i];
+      const v11 = grid[j + 1][i + 1];
+
+      const crossings = [];
+
+      if ((v00 < threshold) !== (v10 < threshold)) {
+        const t = (threshold - v00) / (v10 - v00);
+        crossings.push({ x: (i + t) * step, y: j * step });
+      }
+
+      if ((v00 < threshold) !== (v01 < threshold)) {
+        const t = (threshold - v00) / (v01 - v00);
+        crossings.push({ x: i * step, y: (j + t) * step });
+      }
+
+      if ((v10 < threshold) !== (v11 < threshold)) {
+        const t = (threshold - v10) / (v11 - v10);
+        crossings.push({ x: (i + 1) * step, y: (j + t) * step });
+      }
+
+      if ((v01 < threshold) !== (v11 < threshold)) {
+        const t = (threshold - v01) / (v11 - v01);
+        crossings.push({ x: (i + t) * step, y: (j + 1) * step });
+      }
+
+      if (crossings.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(crossings[0].x, crossings[0].y);
+        ctx.lineTo(crossings[1].x, crossings[1].y);
+        ctx.stroke();
+      }
+    }
+  }
+
+  ctx.shadowBlur = 0;
+}
+
+function standingWaveAmplitudeLocal(s1, s2, px, py, freq) {
+  const r1 = distanceLocal(s1.x, s1.y, px, py);
+  const r2 = distanceLocal(s2.x, s2.y, px, py);
+
+  if (r1 < 0.1 || r2 < 0.1) {
+    return 1 / Math.min(r1, r2);
+  }
+
+  const pAmp1 = 1 / r1;
+  const pAmp2 = 1 / r2;
+  const lambda = wavelengthLocal(freq);
+  const phaseDiff = (2 * Math.PI * Math.abs(r1 - r2)) / lambda;
+
+  return Math.sqrt(
+    pAmp1 * pAmp1 + pAmp2 * pAmp2 + 2 * pAmp1 * pAmp2 * Math.cos(phaseDiff)
+  );
+}
+
+function distanceLocal(x1, y1, x2, y2) {
+  return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
 
 function drawWaves(source, color, t) {
@@ -479,6 +645,81 @@ function drawSpectrum() {
   spectrumCtx.font = '10px Arial';
   spectrumCtx.textAlign = 'left';
   spectrumCtx.fillText(`${frequency} Hz`, 5, 14);
+}
+
+function exportPNG() {
+  const legendHeight = 50;
+  const padding = 16;
+  const exportCanvas = document.createElement('canvas');
+  exportCanvas.width = canvas.width;
+  exportCanvas.height = canvas.height + legendHeight + padding * 2;
+  const eCtx = exportCanvas.getContext('2d');
+
+  eCtx.fillStyle = '#0a0a1a';
+  eCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+  eCtx.drawImage(canvas, 0, 0);
+
+  const legendY = canvas.height + padding;
+  eCtx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+  eCtx.fillRect(0, canvas.height, exportCanvas.width, legendHeight + padding * 2 - padding);
+
+  const items = [
+    { type: 'color', color1: '#1e3a5f', color2: '#00d4ff', label: '加强区域（亮）' },
+    { type: 'color', color1: '#0a0a1a', color2: '#1a1a2e', label: '减弱区域（暗）' },
+    { type: 'line', color: '#f59e0b', label: '驻波节线' },
+    { type: 'dot', color: '#ef4444', label: '声源 1' },
+    { type: 'dot', color: '#10b981', label: '声源 2' }
+  ];
+
+  let x = 20;
+  const y = legendY + 10;
+
+  eCtx.font = '13px Arial';
+  eCtx.textBaseline = 'middle';
+
+  items.forEach(item => {
+    if (item.type === 'color') {
+      const grad = eCtx.createLinearGradient(x, y, x + 24, y);
+      grad.addColorStop(0, item.color1);
+      grad.addColorStop(0.5, item.color2);
+      grad.addColorStop(1, item.color1);
+      eCtx.fillStyle = grad;
+      eCtx.fillRect(x, y - 6, 24, 12);
+    } else if (item.type === 'line') {
+      eCtx.strokeStyle = item.color;
+      eCtx.lineWidth = 2;
+      eCtx.shadowColor = item.color;
+      eCtx.shadowBlur = 4;
+      eCtx.beginPath();
+      eCtx.moveTo(x, y);
+      eCtx.lineTo(x + 24, y);
+      eCtx.stroke();
+      eCtx.shadowBlur = 0;
+    } else if (item.type === 'dot') {
+      eCtx.beginPath();
+      eCtx.arc(x + 12, y, 6, 0, Math.PI * 2);
+      eCtx.fillStyle = item.color;
+      eCtx.shadowColor = item.color;
+      eCtx.shadowBlur = 8;
+      eCtx.fill();
+      eCtx.shadowBlur = 0;
+    }
+    x += 32;
+    eCtx.fillStyle = '#c0c8d6';
+    eCtx.fillText(item.label, x, y);
+    x += eCtx.measureText(item.label).width + 24;
+  });
+
+  const infoText = `频率: ${frequency} Hz | 声源间距: ${Math.round(sourceDistance)} px | 时间: ${new Date().toLocaleString()}`;
+  eCtx.fillStyle = '#8892b0';
+  eCtx.font = '11px Arial';
+  eCtx.fillText(infoText, 20, legendY + 32);
+
+  const link = document.createElement('a');
+  link.download = `interference_${Date.now()}.png`;
+  link.href = exportCanvas.toDataURL('image/png');
+  link.click();
 }
 
 init();

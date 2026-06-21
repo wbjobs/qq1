@@ -196,6 +196,38 @@ header h1 {
   border-radius: 6px;
 }
 
+.swr-info {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: 6px;
+}
+
+.swr-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.swr-label {
+  color: #8892b0;
+}
+
+.swr-value {
+  color: #00d4ff;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.swr-sub {
+  color: #a0aec0;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+}
+
 .history-list {
   max-height: 200px;
   overflow-y: auto;
@@ -246,6 +278,15 @@ header h1 {
   transform: translateY(0);
 }
 
+.export-btn {
+  margin-top: 8px;
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.export-btn:hover {
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
 .legend {
   display: flex;
   justify-content: center;
@@ -293,6 +334,17 @@ header h1 {
 .legend-dot.source2 {
   background: #10b981;
   box-shadow: 0 0 10px #10b981;
+}
+
+.legend-line {
+  width: 24px;
+  height: 2px;
+  position: relative;
+}
+
+.legend-line.node {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
 }
 
 .history-list::-webkit-scrollbar {
