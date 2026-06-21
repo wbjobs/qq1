@@ -1,0 +1,15 @@
+{
+  "name": "sound-wave-interference",
+  "version": "1.0.0",
+  "description": "Sound wave interference visualization with Canvas and WebSocket",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node app.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.0",
+    "better-sqlite3": "^9.2.2",
+    "express": "^4.18.2"
+  }
+}
